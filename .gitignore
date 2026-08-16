@@ -1,0 +1,43 @@
+# ── Application runtime state ──────────────────────────────────────────
+# Generated at runtime in %APPDATA%; never belongs in version control.
+settings.json
+history.json
+draft.json
+
+# ── Build artifacts ────────────────────────────────────────────────────
+build/
+dist/
+installer_output/
+*.manifest
+
+# ── Python ─────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
+# ── Virtual environments ───────────────────────────────────────────────
+venv/
+env/
+ENV/
+.venv/
+
+# ── Testing and coverage ───────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ── Editors and IDEs ───────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS files ───────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
