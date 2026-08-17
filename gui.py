@@ -8,9 +8,12 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from pathlib import Path
-import os
-import subprocess
+
 from history_manager import load_history, update_history_entry
+from platform_utils import (
+    FILE_MANAGER_NAME, MODIFIER_LABEL, app_data_file, clipboard_image_to_file,
+    open_in_file_manager, paste_key_sequences, ui_font,
+)
 
 try:
     from tkinterdnd2 import DND_FILES, DND_TEXT
@@ -18,12 +21,24 @@ try:
 except (ImportError, Exception):
     HAS_DND = False
 
-_APP_DATA_DIR = os.path.join(
-    os.environ.get("APPDATA", os.path.expanduser("~")),
-    "Youtube metadata saver"
-)
-os.makedirs(_APP_DATA_DIR, exist_ok=True)
-_DRAFT_FILE = os.path.join(_APP_DATA_DIR, "draft.json")
+try:
+    from PIL import Image
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
+_DRAFT_FILE = app_data_file("draft.json")
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff"}
+IMAGE_FILETYPES = [("Image files", "*.jpg *.jpeg *.png *.gif *.bmp *.webp *.tiff")]
+
+# ── Palette ────────────────────────────────────────────────────────────────
+ACCENT_BLUE = "#00BFFF"
+AMBER = "#FFB300"
+AMBER_TEXT = "#FFC24D"
+AMBER_HOVER = "#FFC947"
+NAVY_DEEP = "#0B1A2B"
+NAVY_PANEL = "#141F33"
 
 
 class SetupDialog:
@@ -51,7 +66,7 @@ class SetupDialog:
         ctk.CTkLabel(
             self.dialog,
             text="YouTube Metadata Platform - Initial Setup",
-            font=("Arial", 16, "bold"),
+            font=ui_font(16, "bold"),
             text_color="#00BFFF"
         ).pack(pady=20)
 
@@ -62,7 +77,7 @@ class SetupDialog:
         ctk.CTkLabel(
             personal_frame,
             text="Personal Path (for MAIN folders):",
-            font=("Arial", 11)
+            font=ui_font(11)
         ).pack(anchor="w")
 
         self.personal_path_var = ctk.StringVar()
@@ -86,7 +101,7 @@ class SetupDialog:
         ctk.CTkLabel(
             editor_frame,
             text="Editor Path (for EDITOR folders):",
-            font=("Arial", 11)
+            font=ui_font(11)
         ).pack(anchor="w")
 
         self.editor_path_var = ctk.StringVar()
@@ -110,7 +125,7 @@ class SetupDialog:
         ctk.CTkLabel(
             thumb_frame,
             text="Thumbnail Path (YT Thumbnails folder will be created here):",
-            font=("Arial", 11)
+            font=ui_font(11)
         ).pack(anchor="w")
 
         self.thumbnail_base_path_var = ctk.StringVar()
@@ -135,7 +150,7 @@ class SetupDialog:
             button_frame,
             text="Save & Continue",
             command=self.save_paths,
-            font=("Arial", 12),
+            font=ui_font(12),
             width=150
         ).pack(side="left", padx=10)
 
@@ -143,7 +158,7 @@ class SetupDialog:
             button_frame,
             text="Exit",
             command=self.root.quit,
-            font=("Arial", 12),
+            font=ui_font(12),
             width=150
         ).pack(side="left", padx=10)
 
@@ -208,14 +223,14 @@ class ThumbnailPathDialog:
         ctk.CTkLabel(
             self.dialog,
             text="New: Separate Thumbnail Storage",
-            font=("Arial", 15, "bold"),
+            font=ui_font(15, "bold"),
             text_color="#00BFFF"
         ).pack(pady=(20, 4))
 
         ctk.CTkLabel(
             self.dialog,
             text="Choose a base directory. A 'YT Thumbnails' folder will be created there.",
-            font=("Arial", 11),
+            font=ui_font(11),
             text_color="#AAAAAA"
         ).pack(pady=(0, 14))
 
@@ -240,7 +255,7 @@ class ThumbnailPathDialog:
             self.dialog,
             text="Save & Continue",
             command=self._save,
-            font=("Arial", 12),
+            font=ui_font(12),
             width=150
         ).pack(pady=20)
 
@@ -286,7 +301,7 @@ class MainWindow:
         header = ctk.CTkLabel(
             self.root,
             text="YouTube Metadata Saving Platform",
-            font=("Arial", 20, "bold"),
+            font=ui_font(20, "bold"),
             text_color="#00BFFF"
         )
         header.pack(pady=20)
@@ -295,7 +310,7 @@ class MainWindow:
         self.draft_label = ctk.CTkLabel(
             self.root,
             text="",
-            font=("Arial", 10),
+            font=ui_font(10),
             text_color="#FFA500"
         )
         self.draft_label.pack(pady=(0, 5))
@@ -319,8 +334,9 @@ class MainWindow:
         # Thumbnail
         self.add_file_selector(
             main_frame, "Thumbnail (Image)", "thumbnail",
-            allowed_extensions={".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff"},
-            filetypes=[("Image files", "*.jpg *.jpeg *.png *.gif *.bmp *.webp *.tiff")]
+            allowed_extensions=IMAGE_EXTENSIONS,
+            filetypes=IMAGE_FILETYPES,
+            is_image=True
         )
 
         # Skip Thumbnail toggle
@@ -334,7 +350,7 @@ class MainWindow:
             variable=self.skip_thumbnail_var,
             onvalue=True,
             offvalue=False,
-            font=("Arial", 11),
+            font=ui_font(11),
             text_color="#FFA500"
         ).pack(anchor="w", padx=10, pady=8)
 
@@ -345,6 +361,9 @@ class MainWindow:
             filetypes=[("Audio files", "*.mp3 *.wav *.aac *.ogg *.flac *.m4a *.wma *.opus")]
         )
 
+        # ── Reference Material section ──────────────────────────────────────
+        self._build_reference_fields(main_frame)
+
         # ── Short Form Content section ──────────────────────────────────────
         ctk.CTkFrame(main_frame, height=2, fg_color="#333333").pack(fill="x", pady=(15, 5))
 
@@ -354,7 +373,7 @@ class MainWindow:
         ctk.CTkLabel(
             short_toggle_frame,
             text="Short Form Content (YouTube Shorts)",
-            font=("Arial", 12, "bold"),
+            font=ui_font(12, "bold"),
             text_color="#FFFFFF"
         ).pack(side="left", padx=10)
 
@@ -364,7 +383,7 @@ class MainWindow:
             text="Enable",
             variable=self.short_form_var,
             command=self._toggle_short_form,
-            font=("Arial", 11),
+            font=ui_font(11),
             progress_color="#FFA500"
         ).pack(side="left", padx=10)
 
@@ -375,6 +394,9 @@ class MainWindow:
         # Load draft after all widgets exist
         self._load_draft()
 
+        # Ctrl+V / Cmd+V for clipboard screenshots into Reference Thumbnail
+        self._bind_paste_shortcut()
+
         # Buttons Frame
         button_frame = ctk.CTkFrame(self.root)
         button_frame.pack(pady=20)
@@ -383,7 +405,7 @@ class MainWindow:
             button_frame,
             text="Process",
             command=self.on_process,
-            font=("Arial", 14, "bold"),
+            font=ui_font(14, "bold"),
             width=150,
             height=50
         ).pack(side="left", padx=10)
@@ -392,7 +414,7 @@ class MainWindow:
             button_frame,
             text="Clear",
             command=self.clear_all,
-            font=("Arial", 14, "bold"),
+            font=ui_font(14, "bold"),
             width=150,
             height=50
         ).pack(side="left", padx=10)
@@ -401,26 +423,215 @@ class MainWindow:
             button_frame,
             text="History",
             command=self.open_history,
-            font=("Arial", 14, "bold"),
+            font=ui_font(14, "bold"),
             width=150,
             height=50,
             fg_color="#2a5a8a",
             hover_color="#1a4a7a"
         ).pack(side="left", padx=10)
 
+    # ── Reference material ─────────────────────────────────────────────────
+
+    def _make_skip_checkbox(self, parent, text, variable):
+        """
+        Build a Skip checkbox in the app's bright-amber style.
+
+        Sized deliberately larger than a default checkbox so a skipped field is
+        obvious at a glance. Explicit colours are set for every state so the
+        control renders identically under the Windows and macOS Tk themes.
+        """
+        return ctk.CTkCheckBox(
+            parent,
+            text=text,
+            variable=variable,
+            onvalue=True,
+            offvalue=False,
+            font=ui_font(12, "bold"),
+            text_color=AMBER_TEXT,
+            fg_color=AMBER,
+            hover_color=AMBER_HOVER,
+            border_color=AMBER,
+            checkmark_color=NAVY_DEEP,
+            border_width=3,
+            checkbox_width=26,
+            checkbox_height=26,
+            corner_radius=5
+        )
+
+    def _build_reference_fields(self, parent):
+        """
+        Build the Reference Material section: title, transcript, and an
+        independent thumbnail slot, each matching the existing full-width
+        field layout.
+        """
+        ctk.CTkFrame(parent, height=2, fg_color="#333333").pack(fill="x", pady=(15, 5))
+
+        container = ctk.CTkFrame(
+            parent,
+            fg_color=NAVY_PANEL,
+            border_width=1,
+            border_color=AMBER
+        )
+        container.pack(pady=10, padx=5, fill="x")
+
+        ctk.CTkLabel(
+            container,
+            text="  Reference Material",
+            font=ui_font(13, "bold"),
+            text_color=AMBER
+        ).pack(anchor="w", padx=10, pady=(10, 2))
+
+        ctk.CTkLabel(
+            container,
+            text="  Saved to a 'Reference' subfolder inside the THUMB folder.",
+            font=ui_font(10),
+            text_color="#888888"
+        ).pack(anchor="w", padx=10, pady=(0, 8))
+
+        self.skip_reference_title_var = tk.BooleanVar(value=False)
+        self.skip_reference_transcript_var = tk.BooleanVar(value=False)
+
+        # Reference Title + its own Skip box
+        _, title_header = self.add_input_field(
+            container, "Reference Title", "reference_title",
+            "e.g., Source video or article title"
+        )
+        self._make_skip_checkbox(
+            title_header, "Skip", self.skip_reference_title_var
+        ).pack(side="right", padx=(10, 4))
+
+        # Reference Transcript + its own Skip box
+        _, transcript_header = self.add_text_area(
+            container, "Reference Transcript", "reference_transcript"
+        )
+        self._make_skip_checkbox(
+            transcript_header, "Skip", self.skip_reference_transcript_var
+        ).pack(side="right", padx=(10, 4))
+
+        # Reference Thumbnail — always optional, never validated
+        self.add_file_selector(
+            container, "Reference Thumbnail (Image, optional)", "reference_thumbnail",
+            allowed_extensions=IMAGE_EXTENSIONS,
+            filetypes=IMAGE_FILETYPES,
+            is_image=True
+        )
+
+        # Remember the theme's own text colours so un-skipping restores exactly
+        # what the active CustomTkinter theme uses, rather than a hardcoded value.
+        self._reference_text_colors = {
+            "title": self.reference_title_entry.cget("text_color"),
+            "transcript": self.reference_transcript_text.cget("text_color"),
+        }
+
+        # Skip boxes are independent of one another — each only affects its
+        # own field. The trace fires on programmatic sets too, which keeps the
+        # greyed-out state correct when a draft is restored.
+        self.skip_reference_title_var.trace_add(
+            "write", lambda *a: self._on_reference_skip_changed()
+        )
+        self.skip_reference_transcript_var.trace_add(
+            "write", lambda *a: self._on_reference_skip_changed()
+        )
+
+        self._apply_reference_skip_states()
+
+    def _on_reference_skip_changed(self):
+        """React to either Skip box being toggled."""
+        self._apply_reference_skip_states()
+        self._schedule_draft_save()
+
+    def _apply_reference_skip_states(self):
+        """Grey out and disable whichever reference fields are skipped."""
+        skipped_colour = "#5A6472"
+
+        defaults = getattr(self, "_reference_text_colors", {})
+
+        title_skipped = self.skip_reference_title_var.get()
+        self.reference_title_entry.configure(
+            state="disabled" if title_skipped else "normal",
+            text_color=skipped_colour if title_skipped
+            else defaults.get("title", ("gray10", "#DCE4EE"))
+        )
+
+        transcript_skipped = self.skip_reference_transcript_var.get()
+        self.reference_transcript_text.configure(
+            state="disabled" if transcript_skipped else "normal",
+            text_color=skipped_colour if transcript_skipped
+            else defaults.get("transcript", ("gray10", "#DCE4EE"))
+        )
+        self.reference_transcript_word_count_label.configure(
+            text_color=skipped_colour if transcript_skipped else "#AAAAAA"
+        )
+
+    # ── Keyboard paste ─────────────────────────────────────────────────────
+
+    def _bind_paste_shortcut(self):
+        """
+        Bind the platform paste shortcut (Ctrl+V / Cmd+V) so a screenshot on
+        the clipboard drops straight into the Reference Thumbnail slot.
+
+        The handler defers to normal text pasting whenever focus is inside an
+        entry or text widget, so typing in the form is unaffected.
+        """
+        for sequence in paste_key_sequences():
+            self.root.bind_all(sequence, self._on_global_paste)
+
+    def _on_global_paste(self, event=None):
+        """Route a clipboard image into the Reference Thumbnail slot."""
+        widget = getattr(event, "widget", None) if event is not None else None
+        if self._focus_is_text_widget(widget):
+            return None  # let Tk's own paste handling run
+
+        # Silent when the clipboard holds no image — the user was most likely
+        # pasting text somewhere that just isn't a text widget.
+        self.paste_reference_thumbnail(show_error=False)
+        return "break"
+
+    def _focus_is_text_widget(self, widget=None):
+        """
+        True when keyboard focus sits inside an entry or multi-line text box.
+
+        For a real key event the event's own widget is the authoritative
+        answer; focus_get() is only consulted as a fallback. Note that
+        CTkEntry/CTkTextbox are frames wrapping a plain tk.Entry/tk.Text, so
+        the widget seen here is usually the inner Tk one.
+        """
+        if widget is None:
+            try:
+                widget = self.root.focus_get()
+            except (KeyError, tk.TclError):
+                return True  # unknown focus — be conservative and don't hijack
+
+        # Tk hands back a widget path string in some situations.
+        if isinstance(widget, str):
+            try:
+                widget = self.root.nametowidget(widget)
+            except (KeyError, tk.TclError):
+                return True
+
+        if widget is None:
+            return False
+
+        if isinstance(widget, (tk.Entry, tk.Text, ctk.CTkEntry, ctk.CTkTextbox)):
+            return True
+
+        # A widget nested inside a CTkEntry/CTkTextbox wrapper counts too.
+        parent = getattr(widget, "master", None)
+        return isinstance(parent, (ctk.CTkEntry, ctk.CTkTextbox))
+
     def _build_short_form_fields(self):
         """Build the short form content fields inside short_form_frame."""
         ctk.CTkLabel(
             self.short_form_frame,
             text="  Short Form Content",
-            font=("Arial", 13, "bold"),
+            font=ui_font(13, "bold"),
             text_color="#FFA500"
         ).pack(anchor="w", padx=10, pady=(10, 2))
 
         ctk.CTkLabel(
             self.short_form_frame,
             text="  No thumbnail needed for Shorts.",
-            font=("Arial", 10),
+            font=ui_font(10),
             text_color="#888888"
         ).pack(anchor="w", padx=10, pady=(0, 8))
 
@@ -463,6 +674,11 @@ class MainWindow:
                 "thumbnail": self.thumbnail_entry.get(),
                 "voiceover": self.voiceover_entry.get(),
                 "skip_thumbnail": self.skip_thumbnail_var.get(),
+                "reference_title": self.reference_title_entry.get(),
+                "reference_transcript": self.reference_transcript_text.get("1.0", "end-1c"),
+                "reference_thumbnail": self.reference_thumbnail_entry.get(),
+                "skip_reference_title": self.skip_reference_title_var.get(),
+                "skip_reference_transcript": self.skip_reference_transcript_var.get(),
                 "short_form_enabled": self.short_form_var.get(),
             }
             if self.short_form_var.get():
@@ -480,7 +696,7 @@ class MainWindow:
 
     def _load_draft(self):
         """Populate fields from draft.json if it exists."""
-        if not os.path.exists(_DRAFT_FILE):
+        if not _DRAFT_FILE.exists():
             return
         try:
             with open(_DRAFT_FILE, 'r', encoding='utf-8') as f:
@@ -503,14 +719,28 @@ class MainWindow:
                 self.transcript_text.insert("1.0", draft["transcript"])
 
             thumb = draft.get("thumbnail", "")
-            if thumb and os.path.exists(thumb):
+            if thumb and Path(thumb).exists():
                 self.update_thumbnail(thumb)
 
             vo = draft.get("voiceover", "")
-            if vo and os.path.exists(vo):
+            if vo and Path(vo).exists():
                 self.update_voiceover(vo)
 
             self.skip_thumbnail_var.set(draft.get("skip_thumbnail", False))
+
+            # ── Reference material ──────────────────────────────────────
+            if draft.get("reference_title"):
+                self.reference_title_entry.insert(0, draft["reference_title"])
+            if draft.get("reference_transcript"):
+                self.reference_transcript_text.insert("1.0", draft["reference_transcript"])
+
+            ref_thumb = draft.get("reference_thumbnail", "")
+            if ref_thumb and Path(ref_thumb).exists():
+                self.update_reference_thumbnail(ref_thumb)
+
+            self.skip_reference_title_var.set(draft.get("skip_reference_title", False))
+            self.skip_reference_transcript_var.set(draft.get("skip_reference_transcript", False))
+            self._apply_reference_skip_states()
 
             if draft.get("short_form_enabled"):
                 self.short_form_var.set(True)
@@ -524,7 +754,7 @@ class MainWindow:
                     self.short_transcript_text.insert("1.0", draft["short_transcript"])
 
                 sa = draft.get("short_audio", "")
-                if sa and os.path.exists(sa):
+                if sa and Path(sa).exists():
                     self.update_short_audio(sa)
 
             if any(draft.get(k) for k in ("folder_name", "video_title", "description", "transcript")):
@@ -538,24 +768,38 @@ class MainWindow:
             self.root.after_cancel(self._draft_after_id)
             self._draft_after_id = None
         try:
-            if os.path.exists(_DRAFT_FILE):
-                os.remove(_DRAFT_FILE)
+            _DRAFT_FILE.unlink(missing_ok=True)
         except Exception as e:
             print(f"Error clearing draft: {e}")
         self.draft_label.configure(text="")
 
     # ── Field builders ─────────────────────────────────────────────────────
 
+    def _add_field_header(self, frame, label_text):
+        """
+        Build the label row for a field.
+
+        Returns the row frame so callers can pack extra controls (such as a
+        Skip checkbox) on the right-hand side of the same line.
+        """
+        header = ctk.CTkFrame(frame, fg_color="transparent")
+        header.pack(fill="x")
+
+        label = ctk.CTkLabel(
+            header,
+            text=label_text,
+            font=ui_font(11, "bold")
+        )
+        label.pack(side="left", anchor="w")
+
+        return header
+
     def add_input_field(self, parent, label_text, key, placeholder=""):
-        """Add a single-line input field."""
+        """Add a single-line input field. Returns (frame, header_row)."""
         frame = ctk.CTkFrame(parent)
         frame.pack(pady=10, fill="x")
 
-        ctk.CTkLabel(
-            frame,
-            text=label_text,
-            font=("Arial", 11, "bold")
-        ).pack(anchor="w")
+        header = self._add_field_header(frame, label_text)
 
         entry = ctk.CTkEntry(
             frame,
@@ -566,17 +810,14 @@ class MainWindow:
         entry.bind("<KeyRelease>", self._schedule_draft_save)
 
         setattr(self, f"{key}_entry", entry)
+        return frame, header
 
     def add_text_area(self, parent, label_text, key):
-        """Add a multi-line text area."""
+        """Add a multi-line text area. Returns (frame, header_row)."""
         frame = ctk.CTkFrame(parent)
         frame.pack(pady=10, fill="x")
 
-        ctk.CTkLabel(
-            frame,
-            text=label_text,
-            font=("Arial", 11, "bold")
-        ).pack(anchor="w")
+        header = self._add_field_header(frame, label_text)
 
         text_area = ctk.CTkTextbox(
             frame,
@@ -587,7 +828,7 @@ class MainWindow:
         word_count_label = ctk.CTkLabel(
             frame,
             text="0 words",
-            font=("Arial", 15, "bold"),
+            font=ui_font(15, "bold"),
             text_color="#AAAAAA",
             anchor="e"
         )
@@ -604,17 +845,25 @@ class MainWindow:
         text_area.bind("<<Paste>>", lambda e: text_area.after(20, self._schedule_draft_save), add="+")
 
         setattr(self, f"{key}_text", text_area)
+        setattr(self, f"{key}_word_count_label", word_count_label)
+        setattr(self, f"{key}_update_word_count", update_word_count)
+        return frame, header
 
-    def add_file_selector(self, parent, label_text, key, allowed_extensions=None, filetypes=None):
-        """Add a file selector with browse button and drag-drop zone."""
+    def add_file_selector(self, parent, label_text, key, allowed_extensions=None,
+                          filetypes=None, is_image=False):
+        """
+        Add a file selector with browse button and drag-drop zone.
+
+        When is_image is True the field also gets a Paste button that pulls an
+        image straight off the system clipboard (no need to save it to disk
+        first) and a preview thumbnail alongside the filename.
+
+        Returns (frame, header_row).
+        """
         frame = ctk.CTkFrame(parent)
         frame.pack(pady=10, fill="x")
 
-        ctk.CTkLabel(
-            frame,
-            text=label_text,
-            font=("Arial", 11, "bold")
-        ).pack(anchor="w")
+        header = self._add_field_header(frame, label_text)
 
         file_frame = ctk.CTkFrame(frame)
         file_frame.pack(fill="x", pady=(5, 0))
@@ -627,26 +876,57 @@ class MainWindow:
         )
         drop_zone.pack(side="left", fill="both", expand=True, padx=(0, 10), ipady=15)
 
+        preview_label = None
+        if is_image:
+            preview_label = ctk.CTkLabel(drop_zone, text="")
+
+        empty_text = (
+            f"🎯 Drag image here, Browse, Paste, or press {MODIFIER_LABEL}+V"
+            if is_image else "🎯 Drag file here or use Browse"
+        )
+
         file_label = ctk.CTkLabel(
             drop_zone,
-            text="🎯 Drag file here or use Browse",
-            font=("Arial", 10),
+            text=empty_text,
+            font=ui_font(10),
             text_color="#888888"
         )
-        file_label.pack(pady=15, padx=15, fill="both", expand=True)
+        file_label.pack(side="left", pady=15, padx=15, fill="both", expand=True)
 
         file_path_var = tk.StringVar(value="")
 
+        def update_preview(file_path):
+            """Show a small thumbnail of the selected image inside the drop zone."""
+            if preview_label is None:
+                return
+            if not file_path or not HAS_PIL:
+                preview_label.pack_forget()
+                return
+            try:
+                with Image.open(file_path) as opened:
+                    img = opened.copy()
+                img.thumbnail((64, 64))
+                # CTkImage keeps the widget crisp on HiDPI/Retina displays.
+                ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
+                preview_label.configure(image=ctk_img, text="")
+                preview_label.image = ctk_img  # keep a reference alive
+                preview_label.pack(side="left", padx=(12, 0), pady=8, before=file_label)
+            except Exception as e:
+                print(f"Could not build preview for {file_path}: {e}")
+                preview_label.pack_forget()
+
         def update_display(file_path):
             if file_path:
-                filename = os.path.basename(file_path)
+                filename = Path(file_path).name
                 file_label.configure(text=f"✓ {filename}", text_color="#00FF00")
                 drop_zone.configure(border_color="#00AA00", fg_color="#1a3a1a")
                 file_path_var.set(file_path)
+                update_preview(file_path)
             else:
-                file_label.configure(text="🎯 Drag file here or use Browse", text_color="#888888")
+                file_label.configure(text=empty_text, text_color="#888888")
                 drop_zone.configure(border_color="#555555", fg_color="#2a2a2a")
                 file_path_var.set("")
+                update_preview("")
             self._schedule_draft_save()
 
         def browse_file():
@@ -658,21 +938,35 @@ class MainWindow:
             if file_path:
                 update_display(file_path)
 
+        def paste_from_clipboard(show_error=True):
+            """Pull an image off the clipboard into this slot."""
+            image_path = clipboard_image_to_file(prefix=key)
+            if image_path:
+                update_display(image_path)
+                return True
+            if show_error:
+                messagebox.showerror(
+                    "No Image on Clipboard",
+                    "The clipboard does not contain an image.\n\n"
+                    "Take a screenshot or copy an image, then try again."
+                )
+            return False
+
         def on_drop(event):
             try:
                 files = self.root.tk.splitlist(event.data)
                 if files:
                     file_path = files[0].strip('{}')
-                    if not os.path.exists(file_path):
+                    if not Path(file_path).exists():
                         messagebox.showerror("Error", f"File not found: {file_path}")
                         return
                     if allowed_extensions:
-                        ext = os.path.splitext(file_path)[1].lower()
+                        ext = Path(file_path).suffix.lower()
                         if ext not in allowed_extensions:
                             allowed_str = ", ".join(sorted(allowed_extensions))
                             messagebox.showerror(
                                 "Wrong File Type",
-                                f"'{os.path.basename(file_path)}' is not allowed here.\n\n"
+                                f"'{Path(file_path).name}' is not allowed here.\n\n"
                                 f"Accepted types: {allowed_str}"
                             )
                             return
@@ -704,17 +998,33 @@ class MainWindow:
             except Exception as e:
                 print(f"Note: Native drag-drop not available on this system. Use Browse button instead.")
 
+        button_column = ctk.CTkFrame(file_frame, fg_color="transparent")
+        button_column.pack(side="left")
+
         ctk.CTkButton(
-            file_frame,
+            button_column,
             text="Browse",
             command=browse_file,
             width=100,
-            height=45
-        ).pack(side="left")
+            height=45 if not is_image else 34
+        ).pack(side="top")
+
+        if is_image:
+            ctk.CTkButton(
+                button_column,
+                text="Paste",
+                command=paste_from_clipboard,
+                width=100,
+                height=34,
+                fg_color="#2a5a8a",
+                hover_color="#1a4a7a"
+            ).pack(side="top", pady=(6, 0))
 
         setattr(self, f"{key}_entry", file_path_var)
         setattr(self, f"get_{key}", lambda: file_path_var.get())
         setattr(self, f"update_{key}", update_display)
+        setattr(self, f"paste_{key}", paste_from_clipboard)
+        return frame, header
 
     # ── Data helpers ───────────────────────────────────────────────────────
 
@@ -729,6 +1039,11 @@ class MainWindow:
             "thumbnail": self.get_thumbnail(),
             "voiceover": self.get_voiceover(),
             "skip_thumbnail": self.skip_thumbnail_var.get(),
+            "reference_title": self.reference_title_entry.get(),
+            "reference_transcript": self.reference_transcript_text.get("1.0", "end-1c"),
+            "reference_thumbnail": self.get_reference_thumbnail(),
+            "skip_reference_title": self.skip_reference_title_var.get(),
+            "skip_reference_transcript": self.skip_reference_transcript_var.get(),
             "short_form_enabled": short_enabled,
         }
         if short_enabled:
@@ -749,6 +1064,16 @@ class MainWindow:
         self.update_thumbnail("")
         self.update_voiceover("")
         self.skip_thumbnail_var.set(False)
+
+        # Clear reference material fields — un-skip first so the widgets are
+        # editable, otherwise the delete calls are silently ignored.
+        self.skip_reference_title_var.set(False)
+        self.skip_reference_transcript_var.set(False)
+        self._apply_reference_skip_states()
+        self.reference_title_entry.delete(0, "end")
+        self.reference_transcript_text.delete("1.0", "end")
+        self.reference_transcript_update_word_count()
+        self.update_reference_thumbnail("")
 
         # Clear short form fields
         self.short_title_entry.delete(0, "end")
@@ -799,6 +1124,23 @@ class MainWindow:
             )
             if not proceed:
                 return
+
+        # Reference material validation — each field is required unless its
+        # own Skip box is ticked. The Reference Thumbnail is always optional
+        # and never blocks submission.
+        if not inputs["skip_reference_title"] and not inputs["reference_title"].strip():
+            messagebox.showerror(
+                "Validation Error",
+                "Reference Title is required.\n\nTick its Skip box if there is no reference title."
+            )
+            return
+
+        if not inputs["skip_reference_transcript"] and not inputs["reference_transcript"].strip():
+            messagebox.showerror(
+                "Validation Error",
+                "Reference Transcript is required.\n\nTick its Skip box if there is no reference transcript."
+            )
+            return
 
         # Short form validation
         if inputs.get("short_form_enabled"):
@@ -853,7 +1195,7 @@ class HistoryWindow:
         ctk.CTkLabel(
             self.window,
             text="Save History",
-            font=("Arial", 18, "bold"),
+            font=ui_font(18, "bold"),
             text_color="#00BFFF"
         ).pack(pady=15)
 
@@ -861,7 +1203,7 @@ class HistoryWindow:
             ctk.CTkLabel(
                 self.window,
                 text="No saves yet. Process some metadata to see history here.",
-                font=("Arial", 12),
+                font=ui_font(12),
                 text_color="#888888"
             ).pack(expand=True)
             return
@@ -875,7 +1217,7 @@ class HistoryWindow:
         left_panel = ctk.CTkScrollableFrame(
             content,
             label_text=f"All Saves ({len(self.history)})",
-            label_font=("Arial", 11, "bold"),
+            label_font=ui_font(11, "bold"),
             width=270
         )
         left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
@@ -883,14 +1225,14 @@ class HistoryWindow:
         self.detail_panel = ctk.CTkScrollableFrame(
             content,
             label_text="Details",
-            label_font=("Arial", 11, "bold")
+            label_font=ui_font(11, "bold")
         )
         self.detail_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
 
         ctk.CTkLabel(
             self.detail_panel,
             text="Select an entry on the left to view and edit its details.",
-            font=("Arial", 11),
+            font=ui_font(11),
             text_color="#888888"
         ).pack(pady=30)
 
@@ -906,7 +1248,7 @@ class HistoryWindow:
         ts_label = ctk.CTkLabel(
             frame,
             text=entry.get("timestamp", ""),
-            font=("Arial", 9),
+            font=ui_font(9),
             text_color="#777777"
         )
         ts_label.pack(anchor="w", padx=10, pady=(7, 0))
@@ -914,7 +1256,7 @@ class HistoryWindow:
         folder_label = ctk.CTkLabel(
             frame,
             text=entry.get("folder_name", "(no folder)"),
-            font=("Arial", 11, "bold"),
+            font=ui_font(11, "bold"),
             text_color="#FFFFFF"
         )
         folder_label.pack(anchor="w", padx=10)
@@ -922,7 +1264,7 @@ class HistoryWindow:
         title_label = ctk.CTkLabel(
             frame,
             text=entry.get("video_title", ""),
-            font=("Arial", 10),
+            font=ui_font(10),
             text_color="#AAAAAA"
         )
         title_label.pack(anchor="w", padx=10, pady=(0, 7))
@@ -1000,6 +1342,46 @@ class HistoryWindow:
         self._add_text_field("Description", "description", entry.get("description", ""))
         self._add_text_field("Transcript", "transcript", entry.get("transcript", ""))
 
+        # Reference material summary — always shown so a skipped reference is
+        # as visible in history as an included one.
+        ctk.CTkFrame(self.detail_panel, height=1, fg_color=AMBER).pack(
+            fill="x", padx=12, pady=(12, 0)
+        )
+        ctk.CTkLabel(
+            self.detail_panel,
+            text="Reference Material",
+            font=ui_font(11, "bold"),
+            text_color=AMBER
+        ).pack(anchor="w", padx=12, pady=(8, 2))
+
+        skip_title = entry.get("skip_reference_title", False)
+        skip_transcript = entry.get("skip_reference_transcript", False)
+
+        if skip_title and skip_transcript:
+            reference_status = "Both skipped — no notes file created"
+        elif skip_title:
+            reference_status = "Transcript only (title skipped)"
+        elif skip_transcript:
+            reference_status = "Title only (transcript skipped)"
+        else:
+            reference_status = "Title and transcript included"
+
+        self._add_readonly(
+            "Reference", reference_status,
+            "Ref. Thumbnail",
+            entry.get("reference_thumbnail", "") or "Not attached",
+        )
+
+        if not skip_title:
+            self._add_entry_field(
+                "Reference Title", "reference_title", entry.get("reference_title", "")
+            )
+        if not skip_transcript:
+            self._add_text_field(
+                "Reference Transcript", "reference_transcript",
+                entry.get("reference_transcript", "")
+            )
+
         # Show short form data if present
         if entry.get("short_form_enabled"):
             ctk.CTkFrame(self.detail_panel, height=1, fg_color="#FFA500").pack(
@@ -1008,7 +1390,7 @@ class HistoryWindow:
             ctk.CTkLabel(
                 self.detail_panel,
                 text="Short Form Content",
-                font=("Arial", 11, "bold"),
+                font=ui_font(11, "bold"),
                 text_color="#FFA500"
             ).pack(anchor="w", padx=12, pady=(8, 2))
             self._add_readonly(
@@ -1022,7 +1404,7 @@ class HistoryWindow:
             self.detail_panel,
             text="Save Changes",
             command=self._save_changes,
-            font=("Arial", 12, "bold"),
+            font=ui_font(12, "bold"),
             width=160,
             height=38,
             fg_color="#2a5a8a",
@@ -1035,18 +1417,18 @@ class HistoryWindow:
             row = ctk.CTkFrame(self.detail_panel, fg_color="transparent")
             row.pack(fill="x", padx=12, pady=(8, 0))
             ctk.CTkLabel(
-                row, text=f"{label}:", font=("Arial", 10, "bold"),
+                row, text=f"{label}:", font=ui_font(10, "bold"),
                 text_color="#777777", width=110, anchor="w"
             ).pack(side="left")
             ctk.CTkLabel(
-                row, text=value or "(none)", font=("Arial", 10),
+                row, text=value or "(none)", font=ui_font(10),
                 text_color="#AAAAAA", anchor="w"
             ).pack(side="left", fill="x", expand=True)
 
     def _add_entry_field(self, label, key, value):
         ctk.CTkLabel(
             self.detail_panel, text=label,
-            font=("Arial", 10, "bold"), text_color="#00BFFF", anchor="w"
+            font=ui_font(10, "bold"), text_color="#00BFFF", anchor="w"
         ).pack(anchor="w", padx=12, pady=(12, 2))
 
         entry_widget = ctk.CTkEntry(self.detail_panel, height=34)
@@ -1057,7 +1439,7 @@ class HistoryWindow:
     def _add_text_field(self, label, key, value):
         ctk.CTkLabel(
             self.detail_panel, text=label,
-            font=("Arial", 10, "bold"), text_color="#00BFFF", anchor="w"
+            font=ui_font(10, "bold"), text_color="#00BFFF", anchor="w"
         ).pack(anchor="w", padx=12, pady=(12, 2))
 
         tb = ctk.CTkTextbox(self.detail_panel, height=100)
@@ -1092,11 +1474,16 @@ class HistoryWindow:
                 parent=self.window
             )
             return
-        if not os.path.exists(path):
+        if not Path(path).exists():
             messagebox.showerror(
                 "Folder Not Found",
                 f"The folder no longer exists at:\n{path}",
                 parent=self.window
             )
             return
-        os.startfile(path)
+        if not open_in_file_manager(path):
+            messagebox.showerror(
+                "Could Not Open Folder",
+                f"Failed to open the folder in {FILE_MANAGER_NAME}:\n{path}",
+                parent=self.window
+            )

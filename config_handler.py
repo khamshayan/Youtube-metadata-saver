@@ -4,16 +4,10 @@ Handles reading and writing persistent folder paths.
 """
 
 import json
-import os
-from pathlib import Path
 
+from platform_utils import app_data_file
 
-_APP_DATA_DIR = os.path.join(
-    os.environ.get("APPDATA", os.path.expanduser("~")),
-    "Youtube metadata saver"
-)
-os.makedirs(_APP_DATA_DIR, exist_ok=True)
-CONFIG_FILE = os.path.join(_APP_DATA_DIR, "settings.json")
+CONFIG_FILE = app_data_file("settings.json")
 
 
 def load_config():
@@ -21,9 +15,9 @@ def load_config():
     Load configuration from settings.json.
     Returns a dictionary with personal_path and editor_path.
     """
-    if os.path.exists(CONFIG_FILE):
+    if CONFIG_FILE.exists():
         try:
-            with open(CONFIG_FILE, 'r') as f:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                 config = json.load(f)
                 return config
         except Exception as e:
@@ -47,7 +41,7 @@ def save_config(personal_path, editor_path, thumbnail_base_path=None):
         "thumbnail_base_path": thumbnail_base_path
     }
     try:
-        with open(CONFIG_FILE, 'w') as f:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=4)
         return True
     except Exception as e:
@@ -57,4 +51,4 @@ def save_config(personal_path, editor_path, thumbnail_base_path=None):
 
 def config_exists():
     """Check if settings.json exists."""
-    return os.path.exists(CONFIG_FILE)
+    return CONFIG_FILE.exists()
