@@ -1,11 +1,13 @@
 [Setup]
 AppName=Youtube metadata saver
-AppVersion=1.0
-AppPublisher=Youtube metadata saver
+AppVersion=1.0.0
+AppPublisher=Khamshayan
 DefaultDirName={autopf}\Youtube metadata saver
 DefaultGroupName=Youtube metadata saver
 OutputDir=installer_output
-OutputBaseFilename=Youtube metadata saver Setup
+OutputBaseFilename=Youtube metadata saver 1.0.0 Setup
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
