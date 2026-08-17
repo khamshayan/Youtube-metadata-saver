@@ -3,17 +3,19 @@ Main entry point for the YouTube Metadata Saving Platform.
 Initializes the application and coordinates between modules.
 """
 
-import os
 from datetime import datetime
+from pathlib import Path
 
 import customtkinter as ctk
 from gui import SetupDialog, MainWindow, ThumbnailPathDialog
 from config_handler import load_config, save_config, config_exists
 from file_manager import (
     create_folder, save_metadata, save_transcript, copy_file,
-    save_thumbnail_text, folder_exists, save_short_metadata
+    save_thumbnail_text, folder_exists, save_short_metadata,
+    create_reference_folder, save_reference_notes, save_reference_thumbnail
 )
 from history_manager import save_history_entry
+from platform_utils import write_text_file
 
 
 class YouTubeMetadataApp:
@@ -137,8 +139,8 @@ class YouTubeMetadataApp:
                 return
 
             # Create THUMB folder inside YT Thumbnails parent — always created
-            yt_thumbnails_dir = os.path.join(self.thumbnail_base_path, "YT Thumbnails")
-            os.makedirs(yt_thumbnails_dir, exist_ok=True)
+            yt_thumbnails_dir = Path(self.thumbnail_base_path) / "YT Thumbnails"
+            yt_thumbnails_dir.mkdir(parents=True, exist_ok=True)
 
             thumb_folder = create_folder(yt_thumbnails_dir, timestamped_name, "THUMB")
             if not thumb_folder:
@@ -155,27 +157,31 @@ class YouTubeMetadataApp:
                 self.main_window.show_error("Failed to create thumbnail text file")
                 return
 
+            # ── Reference material ─────────────────────────────────────────
+            # Lives in a 'Reference' subfolder of THUMB. MAIN and EDITOR are
+            # untouched by this feature.
+            reference_note = self.process_reference_material(thumb_folder, inputs)
+            if reference_note is None:
+                return  # error already surfaced
+
             # ── Short form content ─────────────────────────────────────────
             short_note = ""
             if inputs.get("short_form_enabled"):
                 date_str = datetime.now().strftime("%Y-%m-%d")
-                short_folder = os.path.join(editor_folder, "Short")
-                os.makedirs(short_folder, exist_ok=True)
+                short_folder = Path(editor_folder) / "Short"
+                short_folder.mkdir(parents=True, exist_ok=True)
 
                 # Short transcript in Short subfolder
                 short_transcript_name = f"{folder_name}_SHORT_{date_str}_Transcript.txt"
-                short_transcript_path = os.path.join(short_folder, short_transcript_name)
-                try:
-                    with open(short_transcript_path, 'w', encoding='utf-8') as f:
-                        f.write(inputs["short_transcript"])
-                except Exception as e:
-                    self.main_window.show_error(f"Failed to save short transcript: {e}")
+                short_transcript_path = short_folder / short_transcript_name
+                if not write_text_file(short_transcript_path, inputs["short_transcript"]):
+                    self.main_window.show_error("Failed to save short transcript")
                     return
 
                 # Short audio in Short subfolder with naming convention
                 short_audio = inputs.get("short_audio", "")
                 if short_audio:
-                    audio_ext = os.path.splitext(short_audio)[1]
+                    audio_ext = Path(short_audio).suffix
                     short_audio_name = f"{folder_name}_SHORT_{date_str}{audio_ext}"
                     if not copy_file(short_audio, short_folder, short_audio_name):
                         self.main_window.show_error("Failed to copy short audio")
@@ -208,6 +214,7 @@ class YouTubeMetadataApp:
                 f"✓ {timestamped_name} - MAIN (at Personal Path)\n"
                 f"✓ {timestamped_name} - EDITOR (at Editor Path)\n"
                 f"{thumb_line}"
+                f"{reference_note}"
                 f"{short_note}\n"
                 f"All files have been saved and copied."
             )
@@ -219,6 +226,74 @@ class YouTubeMetadataApp:
             self.main_window.show_error(f"An unexpected error occurred: {str(e)}")
             print(f"Error: {e}")
     
+    def process_reference_material(self, thumb_folder, inputs):
+        """
+        Create the 'Reference' subfolder inside the THUMB folder and populate it.
+
+        Granular behaviour:
+          * only one field skipped  -> notes file holds just the other one
+          * both skipped            -> no notes file is written at all
+          * neither skipped         -> both are included
+        The reference thumbnail is copied in when one was attached, and its
+        absence never blocks folder creation.
+
+        Args:
+            thumb_folder (str): Path to the already-created THUMB folder
+            inputs (dict): User inputs; mutated with the results for history
+
+        Returns:
+            str: A summary line for the success dialog, or None if creation
+                 failed (in which case the error has already been shown).
+        """
+        skip_title = inputs.get("skip_reference_title", False)
+        skip_transcript = inputs.get("skip_reference_transcript", False)
+        reference_image = inputs.get("reference_thumbnail", "")
+
+        inputs["reference_notes_created"] = False
+        inputs["reference_folder_path"] = ""
+
+        reference_folder = create_reference_folder(thumb_folder)
+        if not reference_folder:
+            self.main_window.show_error("Failed to create Reference folder inside THUMB")
+            return None
+
+        inputs["reference_folder_path"] = str(reference_folder)
+
+        notes_created = save_reference_notes(
+            reference_folder,
+            inputs.get("reference_title", ""),
+            inputs.get("reference_transcript", ""),
+            skip_title=skip_title,
+            skip_transcript=skip_transcript
+        )
+
+        # A False return when both fields were skipped is the expected path,
+        # not a failure — only treat it as an error if something was meant
+        # to be written.
+        if not notes_created and not (skip_title and skip_transcript):
+            self.main_window.show_error("Failed to save Reference Notes file")
+            return None
+
+        inputs["reference_notes_created"] = notes_created
+
+        image_saved = False
+        if reference_image:
+            image_saved = save_reference_thumbnail(reference_folder, reference_image)
+            if not image_saved:
+                self.main_window.show_error("Failed to copy the Reference Thumbnail")
+                return None
+
+        if notes_created and image_saved:
+            detail = "notes + image"
+        elif notes_created:
+            detail = "notes only"
+        elif image_saved:
+            detail = "image only"
+        else:
+            detail = "empty — both fields skipped, no image"
+
+        return f"✓ Reference subfolder inside THUMB ({detail})\n"
+
     def run(self):
         """Start the application."""
         self.root.mainloop()

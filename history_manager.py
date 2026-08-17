@@ -4,16 +4,17 @@ Handles reading and writing save history to history.json.
 """
 
 import json
-import os
 from datetime import datetime
+from pathlib import Path
+
+from platform_utils import app_data_file
+
+HISTORY_FILE = app_data_file("history.json")
 
 
-_APP_DATA_DIR = os.path.join(
-    os.environ.get("APPDATA", os.path.expanduser("~")),
-    "Youtube metadata saver"
-)
-os.makedirs(_APP_DATA_DIR, exist_ok=True)
-HISTORY_FILE = os.path.join(_APP_DATA_DIR, "history.json")
+def _basename(value):
+    """Return just the filename portion of a path, or '' when unset."""
+    return Path(value).name if value else ""
 
 
 def load_history():
@@ -21,7 +22,7 @@ def load_history():
     Load save history from history.json.
     Returns a list of entry dicts, newest first.
     """
-    if os.path.exists(HISTORY_FILE):
+    if HISTORY_FILE.exists():
         try:
             with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -41,21 +42,35 @@ def save_history_entry(inputs):
         bool: True on success, False on failure.
     """
     history = load_history()
+
+    skip_ref_title = inputs.get("skip_reference_title", False)
+    skip_ref_transcript = inputs.get("skip_reference_transcript", False)
+
     entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "folder_name": inputs.get("folder_name", "").strip(),
         "video_title": inputs.get("video_title", ""),
         "description": inputs.get("description", ""),
         "transcript": inputs.get("transcript", ""),
-        "thumbnail": os.path.basename(inputs.get("thumbnail", "")),
-        "voiceover": os.path.basename(inputs.get("voiceover", "")),
+        "thumbnail": _basename(inputs.get("thumbnail", "")),
+        "voiceover": _basename(inputs.get("voiceover", "")),
         "main_folder_path": inputs.get("main_folder_path", ""),
         "editor_folder_path": inputs.get("editor_folder_path", ""),
         "short_form_enabled": inputs.get("short_form_enabled", False),
         "short_title": inputs.get("short_title", ""),
         "short_description": inputs.get("short_description", ""),
         "short_transcript": inputs.get("short_transcript", ""),
-        "short_audio": os.path.basename(inputs.get("short_audio", "")) if inputs.get("short_audio") else "",
+        "short_audio": _basename(inputs.get("short_audio", "")),
+        # ── Reference material ──────────────────────────────────────────
+        "reference_title": "" if skip_ref_title else inputs.get("reference_title", ""),
+        "reference_transcript": "" if skip_ref_transcript else inputs.get("reference_transcript", ""),
+        "skip_reference_title": skip_ref_title,
+        "skip_reference_transcript": skip_ref_transcript,
+        "reference_thumbnail": _basename(inputs.get("reference_thumbnail", "")),
+        "reference_thumbnail_attached": bool(inputs.get("reference_thumbnail")),
+        "reference_included": not (skip_ref_title and skip_ref_transcript),
+        "reference_notes_created": inputs.get("reference_notes_created", False),
+        "reference_folder_path": inputs.get("reference_folder_path", ""),
     }
     history.insert(0, entry)  # newest first
     try:

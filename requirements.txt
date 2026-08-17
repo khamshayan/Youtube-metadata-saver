@@ -1,3 +1,5 @@
-customtkinter==5.2.0
-pillow==10.1.0
-tkinterdnd2==0.3.0
+# Minimum versions rather than hard pins so the app installs on both Windows
+# and macOS (incl. Apple Silicon), where the older pinned builds have no wheels.
+customtkinter>=5.2.0
+pillow>=10.1.0
+tkinterdnd2>=0.3.0
